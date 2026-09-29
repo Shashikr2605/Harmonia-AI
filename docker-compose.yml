@@ -1,0 +1,126 @@
+# Local development stack for Harmonia AI.
+#
+# What runs here:            postgres, redis, minio (S3-compatible storage), api, worker.
+# What runs outside compose: the Next.js frontend (`npm run dev` in ./frontend)
+#
+# Fully self-contained — no Supabase or Cloudflare account needed. Auth is local
+# email/password (backend/app/api/v1/auth_endpoint.py) minting HS256 JWTs.
+#
+# Storage note: the browser uploads directly to storage via presigned URLs, so
+# the API signs them for http://localhost:9000 (S3_PRESIGN_ENDPOINT_URL) while
+# the worker reaches the same MinIO in-network at http://minio:9000.
+#
+# Usage:
+#   cp .env.local.example .env      # defaults work as-is for local dev
+#   docker compose build
+#   docker compose up -d postgres redis minio
+#   docker compose run --rm api alembic upgrade head   # one-time: create tables
+#   docker compose up -d
+#   cd frontend && npm run dev
+
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=harmonia
+      - POSTGRES_PASSWORD=harmonia
+      - POSTGRES_DB=harmonia
+    ports:
+      - "5432:5432"   # exposed so you can inspect with any SQL client if you like
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U harmonia -d harmonia"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  minio:
+    image: pgsty/minio:latest
+    restart: unless-stopped
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      - MINIO_ROOT_USER=minioadmin
+      - MINIO_ROOT_PASSWORD=minioadmin
+      # Allow browser (localhost:3000) preflight for presigned PUT/GET.
+      - MINIO_API_CORS_ALLOW_ORIGIN=*
+    ports:
+      - "9000:9000"   # S3 API — presigned browser uploads/downloads
+      - "9001:9001"   # MinIO web console (http://localhost:9001, minioadmin/minioadmin)
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file: ./.env
+    environment:
+      # Local Postgres (overrides any DATABASE_URL in .env — the app is fully
+      # self-contained now, no Supabase required)
+      - DATABASE_URL=postgresql://harmonia:harmonia@postgres:5432/harmonia
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/1
+      # Local MinIO wiring (overrides any R2 values in .env)
+      - R2_ACCOUNT_ID=local
+      - R2_ACCESS_KEY_ID=minioadmin
+      - R2_SECRET_ACCESS_KEY=minioadmin
+      - R2_BUCKET_NAME=harmonia-audio
+      - R2_ENDPOINT_URL=http://minio:9000
+      - S3_PRESIGN_ENDPOINT_URL=http://localhost:9000
+      - S3_REGION=us-east-1
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+
+  audio_worker:
+    build:
+      context: ./workers/audio
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file: ./.env
+    environment:
+      - DATABASE_URL=postgresql://harmonia:harmonia@postgres:5432/harmonia
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/1
+      - R2_ACCESS_KEY_ID=minioadmin
+      - R2_SECRET_ACCESS_KEY=minioadmin
+      - R2_BUCKET_NAME=harmonia-audio
+      - R2_ENDPOINT_URL=http://minio:9000
+      - S3_REGION=us-east-1
+      - PYTHONPATH=/app
+    command: ["celery", "-A", "tasks", "worker", "--loglevel=info", "--concurrency=1", "-Q", "audio"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+
+volumes:
+  minio_data:
+  postgres_data:

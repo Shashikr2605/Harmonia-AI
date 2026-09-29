@@ -1,0 +1,114 @@
+version: "3.9"
+
+# Runs on the Oracle Cloud Always-Free ARM VM (2 OCPU / 12GB RAM).
+# Postgres + Auth live externally on Supabase, so they are NOT in this file.
+# Object storage (audio/stems) lives externally on Cloudflare R2.
+# This box only hosts the pieces that need a real, long-lived process:
+# the API, the queue, the workers, and automation.
+
+services:
+  # ---- Reverse proxy / automatic HTTPS -----------------------------------
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - api
+      - n8n
+      - flower
+
+  # ---- Queue ---------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # ---- FastAPI backend (talks to Supabase Postgres + R2) -------------------
+  api:
+    build:
+      context: ../../backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file: ../../.env
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/1
+    depends_on:
+      redis:
+        condition: service_healthy
+    expose:
+      - "8000"
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+
+  # ---- Celery worker: Demucs + Whisper + Librosa ----------------------------
+  # This is the heavy one. On a 2-core ARM box, cap concurrency at 1-2 or the
+  # box will thrash. A song will take minutes, not seconds — that's expected
+  # on free-tier CPU. Scale this out to a real GPU worker later without
+  # touching anything else in this file.
+  audio_worker:
+    build:
+      context: ../../workers/audio
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file: ../../.env
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/1
+    command: ["celery", "-A", "tasks", "worker", "--loglevel=info", "--concurrency=1", "-Q", "audio"]
+    depends_on:
+      redis:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 6g   # Demucs + Whisper load real models into RAM
+
+  # ---- Job monitoring (optional but handy while debugging) -----------------
+  flower:
+    image: mher/flower:2.0
+    restart: unless-stopped
+    command: ["celery", "--broker=redis://redis:6379/0", "flower", "--port=5555"]
+    depends_on:
+      - redis
+    expose:
+      - "5555"
+
+  # ---- Automation: processing-complete notifications, weekly report --------
+  n8n:
+    image: n8nio/n8n:latest
+    restart: unless-stopped
+    environment:
+      - N8N_HOST=${N8N_HOST}
+      - N8N_PROTOCOL=https
+      - WEBHOOK_URL=https://${N8N_HOST}/
+      - GENERIC_TIMEZONE=${TZ:-UTC}
+    volumes:
+      - n8n_data:/home/node/.n8n
+    expose:
+      - "5678"
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+
+volumes:
+  redis_data:
+  n8n_data:
+  caddy_data:
+  caddy_config:

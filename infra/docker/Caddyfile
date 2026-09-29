@@ -1,0 +1,20 @@
+# Point two DNS A records at your Oracle VM's public IP:
+#   api.yourdomain.com
+#   n8n.yourdomain.com
+#
+# Caddy handles Let's Encrypt certs automatically, no config needed.
+#
+# Flower (Celery job monitor) is NOT exposed publicly.
+# Access it exclusively via SSH tunnel:
+#   ssh -L 5555:localhost:5555 <user>@<vm-ip>
+# then open http://localhost:5555 in your browser.
+# See DEPLOY.md § Monitoring for details.
+
+api.yourdomain.com {
+    reverse_proxy api:8000
+}
+
+n8n.yourdomain.com {
+    reverse_proxy n8n:5678
+}
+

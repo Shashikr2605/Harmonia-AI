@@ -1,0 +1,14 @@
+fastapi==0.115.*
+uvicorn[standard]==0.32.*
+pydantic==2.*
+pydantic-settings==2.*   # pydantic v2 split settings into a separate package
+sqlalchemy==2.*
+psycopg2-binary==2.9.*
+alembic==1.*
+celery==5.4.*
+redis==5.*
+boto3==1.35.*        # S3-compatible client, works with Cloudflare R2
+python-jose[cryptography]==3.*
+python-multipart==0.0.*
+bcrypt==4.2.*            # local email/password auth (hash + verify)
+email-validator==2.*     # pydantic EmailStr validation for signup/login

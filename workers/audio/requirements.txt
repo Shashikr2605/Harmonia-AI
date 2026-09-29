@@ -1,0 +1,9 @@
+celery==5.4.*
+redis==5.*
+demucs==4.*
+faster-whisper==1.*
+librosa==0.10.*
+soundfile==0.12.*
+boto3==1.35.*
+psycopg2-binary==2.9.*
+sqlalchemy==2.*

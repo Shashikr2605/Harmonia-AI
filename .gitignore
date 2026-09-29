@@ -1,0 +1,8 @@
+node_modules/
+__pycache__/
+.env
+.env.local
+*.log
+minio-data/
+clips/
+.next/
