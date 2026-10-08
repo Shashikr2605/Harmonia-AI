@@ -126,30 +126,6 @@ Frontend runs at **http://localhost:3000**
 
 ---
 
-## 🌍 Free Production Deployment
-
-See **[DEPLOY.md](./DEPLOY.md)** for the complete step-by-step guide. Summary:
-
-| Service | What it does | Free tier |
-|---|---|---|
-| **Supabase** | PostgreSQL database + Auth | ✅ Free (pauses after 7 days idle) |
-| **Cloudflare R2** | Audio file storage (S3-compatible) | ✅ 10GB free |
-| **Oracle Cloud Always-Free VM** | Runs backend API + Celery worker | ✅ 2 ARM cores, 12GB RAM forever |
-| **Vercel** | Hosts the Next.js frontend | ✅ Free hobby plan |
-
-> ⚠️ **About Render:** Render's free tier spins down containers after inactivity and has very limited RAM — Demucs needs ~4GB+ RAM to run. The Oracle Always-Free ARM VM is a much better fit for the worker. Render can work for a lightweight API-only deployment, but the worker will likely crash on free Render due to memory limits.
-
----
-
-## ⚠️ Known Limitations
-
-- Demucs on 2 ARM cores takes **several minutes per song** — this is expected, not a bug
-- Supabase free projects **auto-pause after 7 days** with no traffic — add a daily GitHub Actions cron ping to keep it warm
-- Oracle ARM instances can have **capacity issues** in busy regions — try Frankfurt or Singapore
-- This stack is sized for **demo/portfolio traffic**, not high-volume production
-
----
-
 ## 📄 License
 
 MIT
