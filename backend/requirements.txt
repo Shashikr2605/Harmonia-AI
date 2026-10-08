@@ -4,6 +4,7 @@ pydantic==2.*
 pydantic-settings==2.*   # pydantic v2 split settings into a separate package
 sqlalchemy==2.*
 psycopg2-binary==2.9.*
+psycopg[binary]==3.*          # SQLAlchemy 2.x prefers psycopg3 for postgresql:// URLs
 alembic==1.*
 celery==5.4.*
 redis==5.*
